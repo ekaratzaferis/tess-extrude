@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2D Shape Extrusion POC</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+
+  #controls {
+    padding: 10px 16px; background: #16213e; border-bottom: 1px solid #0f3460;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; z-index: 10;
+  }
+  #controls label { font-size: 13px; display: flex; align-items: center; gap: 4px; }
+  #controls input[type="range"] { width: 100px; accent-color: #e94560; }
+  #controls select, #controls button {
+    padding: 4px 10px; border-radius: 4px; border: 1px solid #0f3460;
+    background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 13px;
+  }
+  #controls button:hover { background: #e94560; }
+  #controls input[type="checkbox"] { accent-color: #e94560; }
+  .val { font-variant-numeric: tabular-nums; min-width: 24px; display: inline-block; text-align: right; }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+  #left-panel { width: 40%; min-width: 300px; position: relative; background: #1a1a2e; border-right: 1px solid #0f3460; }
+  #right-panel { flex: 1; position: relative; }
+  #draw-canvas { width: 100%; height: 100%; cursor: crosshair; }
+  #three-canvas { width: 100%; height: 100%; display: block; }
+
+  #draw-hint {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #555; font-size: 14px; pointer-events: none; text-align: center;
+  }
+  #stats {
+    position: absolute; bottom: 8px; right: 8px; font-size: 11px; color: #888;
+    background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <label>Shape:
+    <select id="shape-select">
+      <option value="freehand">Freehand</option>
+      <option value="square">Square</option>
+      <option value="circle">Circle</option>
+      <option value="star">Star</option>
+      <option value="L">L-Shape</option>
+    </select>
+  </label>
+  <button id="btn-clear">Clear</button>
+  <button id="btn-extrude">Extrude</button>
+
+  <label>Cap Density: <input type="range" id="cap-density" min="1" max="20" value="5"><span class="val" id="cap-density-val">5</span></label>
+  <label>Edge Subdivs: <input type="range" id="edge-subdivs" min="1" max="10" value="2"><span class="val" id="edge-subdivs-val">2</span></label>
+  <label>Depth Segs: <input type="range" id="depth-segs" min="1" max="20" value="4"><span class="val" id="depth-segs-val">4</span></label>
+  <label>Depth: <input type="range" id="extrude-depth" min="1" max="500" value="20" step="1"><span class="val" id="extrude-depth-val">2.0</span></label>
+  <label><input type="checkbox" id="chk-wireframe" checked> Wireframe</label>
+  <label><input type="checkbox" id="chk-solid" checked> Solid</label>
+</div>
+
+<div id="main">
+  <div id="left-panel">
+    <canvas id="draw-canvas"></canvas>
+    <div id="draw-hint">Draw a shape or pick one from the dropdown</div>
+  </div>
+  <div id="right-panel">
+    <canvas id="three-canvas"></canvas>
+    <div id="stats"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/poly2tri@1.5.0/dist/poly2tri.min.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── State ───
+let drawnPoints = [];
+let isDrawing = false;
+
+// ─── DOM refs ───
+const drawCanvas = document.getElementById('draw-canvas');
+const drawCtx = drawCanvas.getContext('2d');
+const threeCanvas = document.getElementById('three-canvas');
+const drawHint = document.getElementById('draw-hint');
+const statsEl = document.getElementById('stats');
+
+const sliderCapDensity = document.getElementById('cap-density');
+const sliderEdgeSubdivs = document.getElementById('edge-subdivs');
+const sliderDepthSegs = document.getElementById('depth-segs');
+const sliderExtrudeDepth = document.getElementById('extrude-depth');
+const chkWireframe = document.getElementById('chk-wireframe');
+const chkSolid = document.getElementById('chk-solid');
+const shapeSelect = document.getElementById('shape-select');
+const btnClear = document.getElementById('btn-clear');
+const btnExtrude = document.getElementById('btn-extrude');
+
+// ─── Three.js setup ───
+const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x1a1a2e);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+camera.position.set(0, 0, 200);
+
+const controls = new OrbitControls(camera, threeCanvas);
+controls.enableDamping = true;
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(50, 80, 100);
+scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+dirLight2.position.set(-50, -30, -50);
+scene.add(dirLight2);
+
+// Grid
+const grid = new THREE.GridHelper(200, 20, 0x0f3460, 0x0f3460);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+
+let solidMesh = null;
+let wireMesh = null;
+
+// ─── Resize ───
+function resize() {
+  const leftRect = drawCanvas.parentElement.getBoundingClientRect();
+  drawCanvas.width = leftRect.width;
+  drawCanvas.height = leftRect.height;
+  redraw2D();
+
+  const rightRect = threeCanvas.parentElement.getBoundingClientRect();
+  renderer.setSize(rightRect.width, rightRect.height);
+  camera.aspect = rightRect.width / rightRect.height;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+// ─── 2D Drawing ───
+function getCanvasPos(e) {
+  const rect = drawCanvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+drawCanvas.addEventListener('mousedown', (e) => {
+  if (shapeSelect.value !== 'freehand') return;
+  isDrawing = true;
+  drawnPoints = [getCanvasPos(e)];
+  drawHint.style.display = 'none';
+});
+
+drawCanvas.addEventListener('mousemove', (e) => {
+  if (!isDrawing) return;
+  const p = getCanvasPos(e);
+  const last = drawnPoints[drawnPoints.length - 1];
+  const dx = p.x - last.x, dy = p.y - last.y;
+  if (dx * dx + dy * dy > 16) {
+    drawnPoints.push(p);
+    redraw2D();
+  }
+});
+
+drawCanvas.addEventListener('mouseup', () => {
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (drawnPoints.length > 4) {
+    drawnPoints = simplifyPath(drawnPoints, 3);
+    redraw2D();
+  }
+});
+
+// Touch support
+drawCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); drawCanvas.dispatchEvent(new MouseEvent('mousedown', e.touches[0])); }, { passive: false });
+drawCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); drawCanvas.dispatchEvent(new MouseEvent('mousemove', e.touches[0])); }, { passive: false });
+drawCanvas.addEventListener('touchend', (e) => { e.preventDefault(); drawCanvas.dispatchEvent(new MouseEvent('mouseup')); }, { passive: false });
+
+function redraw2D() {
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  if (drawnPoints.length < 2) return;
+
+  drawCtx.beginPath();
+  drawCtx.moveTo(drawnPoints[0].x, drawnPoints[0].y);
+  for (let i = 1; i < drawnPoints.length; i++) {
+    drawCtx.lineTo(drawnPoints[i].x, drawnPoints[i].y);
+  }
+  drawCtx.closePath();
+  drawCtx.fillStyle = 'rgba(233, 69, 96, 0.15)';
+  drawCtx.fill();
+  drawCtx.strokeStyle = '#e94560';
+  drawCtx.lineWidth = 2;
+  drawCtx.stroke();
+
+  // Draw points
+  drawCtx.fillStyle = '#e94560';
+  for (const p of drawnPoints) {
+    drawCtx.beginPath();
+    drawCtx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+    drawCtx.fill();
+  }
+}
+
+// ─── Douglas-Peucker simplification ───
+function simplifyPath(points, tolerance) {
+  if (points.length <= 2) return points;
+  let maxDist = 0, maxIdx = 0;
+  const first = points[0], last = points[points.length - 1];
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = perpendicularDist(points[i], first, last);
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist > tolerance) {
+    const left = simplifyPath(points.slice(0, maxIdx + 1), tolerance);
+    const right = simplifyPath(points.slice(maxIdx), tolerance);
+    return left.slice(0, -1).concat(right);
+  }
+  return [first, last];
+}
+
+function perpendicularDist(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+// ─── Preset shapes ───
+function generatePresetShape(type) {
+  const cx = drawCanvas.width / 2, cy = drawCanvas.height / 2;
+  const sz = Math.min(drawCanvas.width, drawCanvas.height) * 0.35;
+  const pts = [];
+
+  switch (type) {
+    case 'square':
+      pts.push({ x: cx - sz, y: cy - sz }, { x: cx + sz, y: cy - sz },
+               { x: cx + sz, y: cy + sz }, { x: cx - sz, y: cy + sz });
+      break;
+    case 'circle':
+      for (let i = 0; i < 32; i++) {
+        const a = (i / 32) * Math.PI * 2;
+        pts.push({ x: cx + Math.cos(a) * sz, y: cy + Math.sin(a) * sz });
+      }
+      break;
+    case 'star': {
+      const outer = sz, inner = sz * 0.4;
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+        const r = i % 2 === 0 ? outer : inner;
+        pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+      }
+      break;
+    }
+    case 'L': {
+      const s = sz * 0.8;
+      pts.push(
+        { x: cx - s, y: cy - s }, { x: cx, y: cy - s },
+        { x: cx, y: cy }, { x: cx + s, y: cy },
+        { x: cx + s, y: cy + s }, { x: cx - s, y: cy + s }
+      );
+      break;
+    }
+  }
+  return pts;
+}
+
+shapeSelect.addEventListener('change', () => {
+  const v = shapeSelect.value;
+  if (v !== 'freehand') {
+    drawnPoints = generatePresetShape(v);
+    drawHint.style.display = 'none';
+    redraw2D();
+  }
+});
+
+btnClear.addEventListener('click', () => {
+  drawnPoints = [];
+  drawHint.style.display = 'block';
+  redraw2D();
+  clearMeshes();
+  statsEl.textContent = '';
+});
+
+// ─── Point-in-polygon (ray casting) ───
+function pointInPolygon(px, py, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// ─── Ensure polygon is CCW (poly2tri requires it) ───
+function ensureCCW(points) {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length;
+    area += points[i].x * points[j].y;
+    area -= points[j].x * points[i].y;
+  }
+  if (area < 0) points.reverse();
+  return points;
+}
+
+// ─── Remove near-duplicate consecutive points ───
+function deduplicatePoints(points, eps) {
+  if (points.length === 0) return points;
+  const result = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i].x - result[result.length - 1].x;
+    const dy = points[i].y - result[result.length - 1].y;
+    if (dx * dx + dy * dy > eps * eps) {
+      result.push(points[i]);
+    }
+  }
+  // Check last vs first
+  const dx = result[result.length - 1].x - result[0].x;
+  const dy = result[result.length - 1].y - result[0].y;
+  if (dx * dx + dy * dy <= eps * eps) result.pop();
+  return result;
+}
+
+// ─── Subdivide boundary edges ───
+function subdivideBoundary(points, subdivs) {
+  if (subdivs <= 1) return [...points];
+  const result = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    for (let s = 0; s < subdivs; s++) {
+      const t = s / subdivs;
+      result.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+  return result;
+}
+
+// ─── Generate Steiner points ───
+function generateSteinerPoints(polygon, density) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of polygon) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+
+  const rangeX = maxX - minX, rangeY = maxY - minY;
+  const maxDim = Math.max(rangeX, rangeY);
+  // density 1 = very sparse, 20 = very dense
+  const spacing = maxDim / (density + 1);
+  const steiners = [];
+  const margin = spacing * 0.5;
+
+  for (let x = minX + margin; x < maxX - margin * 0.5; x += spacing) {
+    for (let y = minY + margin; y < maxY - margin * 0.5; y += spacing) {
+      if (pointInPolygon(x, y, polygon)) {
+        // Check minimum distance from boundary to avoid coincident points
+        let tooClose = false;
+        for (let i = 0; i < polygon.length; i++) {
+          const j = (i + 1) % polygon.length;
+          const d = distToSegment(x, y, polygon[i], polygon[j]);
+          if (d < spacing * 0.15) { tooClose = true; break; }
+        }
+        if (!tooClose) {
+          // Add small jitter to avoid degeneracies
+          const jx = (Math.random() - 0.5) * spacing * 0.05;
+          const jy = (Math.random() - 0.5) * spacing * 0.05;
+          steiners.push({ x: x + jx, y: y + jy });
+        }
+      }
+    }
+  }
+  return steiners;
+}
+
+function distToSegment(px, py, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - a.x, py - a.y);
+  const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / lenSq));
+  return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+}
+
+// ─── Triangulate cap ───
+function triangulateCap(boundaryPoints, density) {
+  const contour = boundaryPoints.map(p => new poly2tri.Point(p.x, p.y));
+  const swctx = new poly2tri.SweepContext(contour);
+
+  if (density > 1) {
+    const steiners = generateSteinerPoints(boundaryPoints, density);
+    for (const s of steiners) {
+      swctx.addPoint(new poly2tri.Point(s.x, s.y));
+    }
+  }
+
+  swctx.triangulate();
+  return swctx.getTriangles();
+}
+
+// ─── Build the extruded geometry ───
+function buildExtrudedGeometry(rawPoints, capDensity, edgeSubdivs, depthSegs, depth) {
+  // Prepare boundary
+  let pts = deduplicatePoints(rawPoints, 0.5);
+  if (pts.length < 3) return null;
+  pts = ensureCCW(pts);
+
+  // Center the shape
+  let cx = 0, cy = 0;
+  for (const p of pts) { cx += p.x; cy += p.y; }
+  cx /= pts.length; cy /= pts.length;
+  pts = pts.map(p => ({ x: p.x - cx, y: p.y - cy }));
+
+  // Subdivide boundary
+  const subdividedPts = subdivideBoundary(pts, edgeSubdivs);
+
+  // Triangulate front cap
+  let capTriangles;
+  try {
+    capTriangles = triangulateCap(subdividedPts, capDensity);
+  } catch (e) {
+    console.warn('poly2tri failed, retrying with fewer points:', e.message);
+    // Fallback: try without Steiner points
+    try {
+      capTriangles = triangulateCap(subdividedPts, 0);
+    } catch (e2) {
+      console.error('Triangulation failed:', e2.message);
+      return null;
+    }
+  }
+
+  // Count vertices and faces
+  const nCapTris = capTriangles.length;
+  const nBoundary = subdividedPts.length;
+  const nSideQuads = nBoundary * depthSegs;
+  const nSideTris = nSideQuads * 2;
+  const totalTris = nCapTris * 2 + nSideTris;
+
+  // Build indexed geometry
+  const positions = [];
+  const indices = [];
+  const normals = [];
+  let vertIdx = 0;
+
+  // ─ Front cap (z = -depth/2) ─
+  const frontZ = -depth / 2;
+  const capVertMap = new Map();
+
+  function getCapVertIdx(px, py, z) {
+    const key = `${px.toFixed(6)},${py.toFixed(6)},${z.toFixed(6)}`;
+    if (capVertMap.has(key)) return capVertMap.get(key);
+    const idx = vertIdx++;
+    positions.push(px, py, z);
+    normals.push(0, 0, z < 0 ? -1 : 1);
+    capVertMap.set(key, idx);
+    return idx;
+  }
+
+  for (const tri of capTriangles) {
+    const pts3 = tri.getPoints();
+    const i0 = getCapVertIdx(pts3[0].x, pts3[0].y, frontZ);
+    const i1 = getCapVertIdx(pts3[1].x, pts3[1].y, frontZ);
+    const i2 = getCapVertIdx(pts3[2].x, pts3[2].y, frontZ);
+    // Front face: winding order for -Z normal
+    indices.push(i0, i2, i1);
+  }
+
+  // ─ Back cap (z = +depth/2) ─
+  const backZ = depth / 2;
+  const backCapVertMap = new Map();
+
+  function getBackCapVertIdx(px, py, z) {
+    const key = `${px.toFixed(6)},${py.toFixed(6)},${z.toFixed(6)}`;
+    if (backCapVertMap.has(key)) return backCapVertMap.get(key);
+    const idx = vertIdx++;
+    positions.push(px, py, z);
+    normals.push(0, 0, 1);
+    backCapVertMap.set(key, idx);
+    return idx;
+  }
+
+  for (const tri of capTriangles) {
+    const pts3 = tri.getPoints();
+    const i0 = getBackCapVertIdx(pts3[0].x, pts3[0].y, backZ);
+    const i1 = getBackCapVertIdx(pts3[1].x, pts3[1].y, backZ);
+    const i2 = getBackCapVertIdx(pts3[2].x, pts3[2].y, backZ);
+    // Back face: normal winding for +Z
+    indices.push(i0, i1, i2);
+  }
+
+  // ─ Side walls ─
+  for (let i = 0; i < nBoundary; i++) {
+    const a = subdividedPts[i];
+    const b = subdividedPts[(i + 1) % nBoundary];
+
+    // Compute outward normal for this edge
+    const edgeDx = b.x - a.x, edgeDy = b.y - a.y;
+    const edgeLen = Math.hypot(edgeDx, edgeDy);
+    const nx = edgeDy / edgeLen, ny = -edgeDx / edgeLen;
+
+    for (let j = 0; j < depthSegs; j++) {
+      const z0 = frontZ + (backZ - frontZ) * (j / depthSegs);
+      const z1 = frontZ + (backZ - frontZ) * ((j + 1) / depthSegs);
+
+      // Quad: (a,z0) (b,z0) (b,z1) (a,z1)
+      const v0 = vertIdx++;
+      positions.push(a.x, a.y, z0); normals.push(nx, ny, 0);
+      const v1 = vertIdx++;
+      positions.push(b.x, b.y, z0); normals.push(nx, ny, 0);
+      const v2 = vertIdx++;
+      positions.push(b.x, b.y, z1); normals.push(nx, ny, 0);
+      const v3 = vertIdx++;
+      positions.push(a.x, a.y, z1); normals.push(nx, ny, 0);
+
+      indices.push(v0, v1, v2);
+      indices.push(v0, v2, v3);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setIndex(indices);
+
+  return { geometry, totalTris, nCapTris, nSideTris };
+}
+
+// ─── Mesh management ───
+function clearMeshes() {
+  if (solidMesh) { scene.remove(solidMesh); solidMesh.geometry.dispose(); solidMesh = null; }
+  if (wireMesh) { scene.remove(wireMesh); wireMesh.geometry.dispose(); wireMesh = null; }
+}
+
+function doExtrude() {
+  if (drawnPoints.length < 3) return;
+
+  const capDensity = parseInt(sliderCapDensity.value);
+  const edgeSubdivs = parseInt(sliderEdgeSubdivs.value);
+  const depthSegs = parseInt(sliderDepthSegs.value);
+  const depth = parseInt(sliderExtrudeDepth.value);
+
+  const result = buildExtrudedGeometry(drawnPoints, capDensity, edgeSubdivs, depthSegs, depth);
+  if (!result) return;
+
+  clearMeshes();
+
+  const solidMat = new THREE.MeshPhongMaterial({
+    color: 0xe94560, specular: 0x333333, shininess: 40,
+    side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+  });
+  solidMesh = new THREE.Mesh(result.geometry, solidMat);
+  solidMesh.visible = chkSolid.checked;
+  scene.add(solidMesh);
+
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, wireframe: true, transparent: true, opacity: 0.4
+  });
+  wireMesh = new THREE.Mesh(result.geometry, wireMat);
+  wireMesh.visible = chkWireframe.checked;
+  scene.add(wireMesh);
+
+  // Fit camera
+  result.geometry.computeBoundingSphere();
+  const r = result.geometry.boundingSphere.radius;
+  camera.position.set(r * 0.8, r * 0.8, r * 2);
+  controls.target.set(0, 0, 0);
+  controls.update();
+
+  statsEl.textContent = `Triangles: ${result.totalTris} (caps: ${result.nCapTris * 2}, sides: ${result.nSideTris})`;
+}
+
+// ─── UI events ───
+btnExtrude.addEventListener('click', doExtrude);
+
+function onSliderChange() {
+  document.getElementById('cap-density-val').textContent = sliderCapDensity.value;
+  document.getElementById('edge-subdivs-val').textContent = sliderEdgeSubdivs.value;
+  document.getElementById('depth-segs-val').textContent = sliderDepthSegs.value;
+  document.getElementById('extrude-depth-val').textContent = (parseInt(sliderExtrudeDepth.value) / 10).toFixed(1);
+  if (drawnPoints.length >= 3 && solidMesh) doExtrude();
+}
+
+sliderCapDensity.addEventListener('input', onSliderChange);
+sliderEdgeSubdivs.addEventListener('input', onSliderChange);
+sliderDepthSegs.addEventListener('input', onSliderChange);
+sliderExtrudeDepth.addEventListener('input', onSliderChange);
+
+chkWireframe.addEventListener('change', () => { if (wireMesh) wireMesh.visible = chkWireframe.checked; });
+chkSolid.addEventListener('change', () => { if (solidMesh) solidMesh.visible = chkSolid.checked; });
+
+// ─── Animation loop ───
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ─── Init ───
+resize();
+animate();
+</script>
+</body>
+</html>
