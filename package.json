@@ -1,7 +1,7 @@
 {
   "name": "tess-extrude",
   "version": "0.1.0",
-  "description": "2D to 3D shape extrusion library using poly2tri tessellation",
+  "description": "Extrude 2D polygon outlines into THREE.BufferGeometry using poly2tri Delaunay tessellation",
   "type": "module",
   "main": "dist/tess-extrude.cjs.js",
   "module": "dist/tess-extrude.es.js",
@@ -14,8 +14,11 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "sideEffects": false,
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -23,8 +26,32 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run test && npm run build"
   },
+  "keywords": [
+    "three",
+    "threejs",
+    "3d",
+    "extrude",
+    "extrusion",
+    "polygon",
+    "tessellation",
+    "poly2tri",
+    "geometry",
+    "webgl",
+    "svg"
+  ],
+  "author": "Alexandros Karatzaferis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ekaratzaferis/tess-extrude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ekaratzaferis/tess-extrude/issues"
+  },
+  "homepage": "https://github.com/ekaratzaferis/tess-extrude#readme",
   "peerDependencies": {
     "three": ">=0.150.0"
   },
