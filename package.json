@@ -27,6 +27,7 @@
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
+    "build:demo": "vite build --config vite.config.demo.ts",
     "prepublishOnly": "npm run test && npm run build"
   },
   "keywords": [
