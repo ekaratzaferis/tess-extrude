@@ -1,6 +1,6 @@
 {
   "name": "tess-extrude",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Extrude 2D polygon outlines into THREE.BufferGeometry using Delaunay tessellation (triangle-wasm)",
   "type": "module",
   "module": "dist/tess-extrude.es.js",
