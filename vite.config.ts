@@ -9,19 +9,20 @@ export default defineConfig(({ command }) => {
   if (command === 'build') {
     return {
       build: {
+        target: 'es2022',
         lib: {
           entry: path.resolve(__dirname, 'src/index.ts'),
           name: 'TessExtrude',
-          formats: ['es', 'cjs', 'umd'],
+          formats: ['es'],
           fileName: (format) => `tess-extrude.${format}.js`,
         },
         rollupOptions: {
-          external: ['three', /^three\/.*/],
+          external: ['three', /^three\/.*/, 'triangle-wasm'],
           output: {
             globals: {
-            three: 'THREE',
-            'three/examples/jsm/loaders/SVGLoader.js': 'THREE',
-          },
+              three: 'THREE',
+              'three/examples/jsm/loaders/SVGLoader.js': 'THREE',
+            },
           },
         },
         sourcemap: true,
@@ -38,10 +39,6 @@ export default defineConfig(({ command }) => {
       alias: {
         'tess-extrude': path.resolve(__dirname, 'src/index.ts'),
       },
-    },
-    // poly2tri is a CJS module that references Node's `global`; shim it for browsers
-    define: {
-      global: 'globalThis',
     },
   };
 });

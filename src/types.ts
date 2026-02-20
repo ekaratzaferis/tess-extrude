@@ -23,6 +23,14 @@ export interface SVGInput {
 
 export type ExtrudeInput = PointInput | SVGInput;
 
+/** Internal result from triangulateCap(). Not exported publicly. */
+export interface TriangulationResult {
+  /** Flat [x0,y0, x1,y1, …] — boundary + Steiner points added by Triangle */
+  vertices: Float64Array;
+  /** Flat [i0,i1,i2, …] — indices into vertices[], CCW winding */
+  indices: Uint32Array;
+}
+
 export interface ExtrudeOptions {
   /** Extrusion depth. Default: 20 */
   depth: number;

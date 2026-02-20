@@ -1,15 +1,13 @@
 {
   "name": "tess-extrude",
-  "version": "0.1.0",
-  "description": "Extrude 2D polygon outlines into THREE.BufferGeometry using poly2tri Delaunay tessellation",
+  "version": "0.2.0",
+  "description": "Extrude 2D polygon outlines into THREE.BufferGeometry using Delaunay tessellation (triangle-wasm)",
   "type": "module",
-  "main": "dist/tess-extrude.cjs.js",
   "module": "dist/tess-extrude.es.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/tess-extrude.es.js",
-      "require": "./dist/tess-extrude.cjs.js",
       "types": "./dist/index.d.ts"
     }
   },
@@ -18,7 +16,6 @@
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": false,
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -38,7 +35,9 @@
     "extrusion",
     "polygon",
     "tessellation",
-    "poly2tri",
+    "triangle",
+    "wasm",
+    "delaunay",
     "geometry",
     "webgl",
     "svg"
@@ -56,20 +55,20 @@
   "peerDependencies": {
     "three": ">=0.150.0"
   },
-  "dependencies": {
-    "poly2tri": "^1.5.0"
-  },
   "devDependencies": {
+    "@types/three": "^0.170.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.0.0",
     "eslint-config-prettier": "^9.0.0",
     "prettier": "^3.0.0",
     "three": "^0.170.0",
-    "@types/three": "^0.170.0",
     "typescript": "^5.4.0",
     "vite": "^5.0.0",
     "vite-plugin-dts": "^3.9.0",
     "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "triangle-wasm": "^1.0.0"
   }
 }

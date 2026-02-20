@@ -1,6 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as THREE from 'three';
 
+vi.mock('triangle-wasm', () => ({
+  default: {
+    init: vi.fn(() => Promise.resolve()),
+    makeIO: vi.fn((data?: { pointlist?: Float64Array; segmentlist?: Int32Array }) => ({
+      pointlist:    data?.pointlist    ?? new Float64Array(0),
+      segmentlist:  data?.segmentlist  ?? new Int32Array(0),
+      trianglelist: new Uint32Array(0),
+    })),
+    freeIO: vi.fn(),
+    triangulate: vi.fn((_sw: unknown, input: { pointlist: Float64Array }, output: { pointlist: Float64Array; trianglelist: Uint32Array }) => {
+      output.pointlist    = new Float64Array(input.pointlist);
+      output.trianglelist = new Uint32Array([0, 1, 2,  0, 2, 3]);
+    }),
+  },
+}));
+
+vi.mock('triangle-wasm/triangle.out.wasm?url', () => ({ default: '/triangle.out.wasm' }));
+
 // Mock SVGLoader before importing extrude to avoid DOMParser in Node
 vi.mock('three/examples/jsm/loaders/SVGLoader.js', () => {
   const MockSVGLoader = class {

@@ -1,54 +1,57 @@
-import * as poly2tri from 'poly2tri';
-import type { Point2D, Bounds } from '../types.js';
-import { generateSteinerPoints } from './steiner.js';
-import { mulberry32 } from '../math/prng.js';
+import Triangle from 'triangle-wasm';
+import wasmUrl from 'triangle-wasm/triangle.out.wasm?url';
+import type { Point2D, Bounds, TriangulationResult } from '../types.js';
 
-/**
- * Triangulate a CCW boundary polygon into cap triangles using poly2tri.
- * Optionally adds interior Steiner points to improve mesh quality.
- *
- * Falls back to no Steiner points on failure, returns null on total failure.
- */
+// Top-level await — WASM init completes before any export is used.
+// wasmUrl is resolved by Vite at build/dev time to the correct served URL,
+// bypassing the Emscripten locateFile heuristic (which would otherwise look
+// for the .wasm beside the pre-bundled .vite/deps/triangle-wasm.js).
+await Triangle.init(wasmUrl);
+
 export function triangulateCap(
   boundaryPoints: Point2D[],
   density: number,
   bounds: Bounds,
-): poly2tri.Triangle[] | null {
-  // Seed derived from polygon dimensions for deterministic jitter
-  const seed = Math.round(
-    Math.abs(bounds.maxX - bounds.minX) * 1000 + Math.abs(bounds.maxY - bounds.minY) * 1000,
-  );
-  const rand = mulberry32(seed);
+): TriangulationResult | null {
+  const n = boundaryPoints.length;
 
-  const attempt = (withSteiners: boolean): poly2tri.Triangle[] | null => {
-    try {
-      // Fresh Point objects per attempt so poly2tri state is clean
-      const contour = boundaryPoints.map((p) => new poly2tri.Point(p.x, p.y));
-      const swctx = new poly2tri.SweepContext(contour);
-
-      if (withSteiners && density > 1) {
-        const steiners = generateSteinerPoints(boundaryPoints, density, bounds, rand);
-        for (const s of steiners) {
-          swctx.addPoint(new poly2tri.Point(s.x, s.y));
-        }
-      }
-
-      swctx.triangulate();
-      const tris = swctx.getTriangles();
-      // Drop reference so SweepContext can be GC'd
-      return tris;
-    } catch {
-      return null;
-    }
-  };
-
-  let tris = attempt(true);
-  if (tris === null) {
-    console.warn('poly2tri: triangulation failed, retrying without Steiner points');
-    tris = attempt(false);
-    if (tris === null) {
-      console.error('poly2tri: triangulation failed completely');
-    }
+  const pointlist = new Float64Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    pointlist[i * 2]     = boundaryPoints[i]!.x;
+    pointlist[i * 2 + 1] = boundaryPoints[i]!.y;
   }
-  return tris;
+
+  const segmentlist = new Int32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    segmentlist[i * 2]     = i;
+    segmentlist[i * 2 + 1] = (i + 1) % n;
+  }
+
+  const input = Triangle.makeIO({ pointlist, segmentlist });
+  const output = Triangle.makeIO();
+
+  const maxDim = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  const sw: Record<string, boolean | number> = { pslg: true, quality: 20, quiet: true, bndMarkers: false };
+  if (density > 1) {
+    sw['area'] = (maxDim * maxDim) / (2 * (density + 1) * (density + 1));
+  }
+
+  try {
+    Triangle.triangulate(sw, input, output);
+  } catch (e) {
+    Triangle.freeIO(input, true);
+    Triangle.freeIO(output);
+    console.error('triangle-wasm: triangulation failed', e);
+    return null;
+  }
+
+  // CRITICAL: copy out of WASM heap before freeIO invalidates the memory
+  const vertices = new Float64Array(output.pointlist);
+  const indices  = new Uint32Array(output.trianglelist);
+
+  Triangle.freeIO(input, true);
+  Triangle.freeIO(output);
+
+  if (!vertices.length || !indices.length) return null;
+  return { vertices, indices };
 }

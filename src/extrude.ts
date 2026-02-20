@@ -33,10 +33,10 @@ function buildExtrudedGeometry(
   const subdividedPts = subdivideBoundary(pts, edgeSubdivisions);
   const bounds = computeBounds(subdividedPts);
 
-  const capTriangles = triangulateCap(subdividedPts, capDensity, bounds);
-  if (!capTriangles || capTriangles.length === 0) return null;
+  const capResult = triangulateCap(subdividedPts, capDensity, bounds);
+  if (!capResult || capResult.indices.length === 0) return null;
 
-  return buildGeometry(subdividedPts, capTriangles, depth, depthSegments);
+  return buildGeometry(subdividedPts, capResult, depth, depthSegments);
 }
 
 /**

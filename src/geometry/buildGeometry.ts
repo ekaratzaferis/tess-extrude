@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import type * as poly2tri from 'poly2tri';
-import type { Point2D, Bounds } from '../types.js';
+import type { Point2D, Bounds, TriangulationResult } from '../types.js';
 import { writeCap } from './caps.js';
 import { writeSides } from './sides.js';
 
@@ -23,29 +22,19 @@ export function computeBounds(points: Point2D[]): Bounds {
  * Assemble a THREE.BufferGeometry from pre-computed tessellation data.
  *
  * Sizes all typed arrays upfront using exact counts:
- *   - Unique cap verts counted via object-identity Set before first write
+ *   - Cap verts: vertices.length / 2 (flat x,y pairs from triangle-wasm output)
  *   - Side verts: nBoundary × depthSegs × 4 (4 verts per quad)
  *   - Uses Uint16Array for indices when totalVerts ≤ 65535, Uint32Array otherwise
  */
 export function buildGeometry(
   subdividedPts: Point2D[],
-  capTriangles: poly2tri.Triangle[],
+  capResult: TriangulationResult,
   depth: number,
   depthSegs: number,
 ): THREE.BufferGeometry {
-  const nCapTris = capTriangles.length;
+  const nUniqueCapVerts = capResult.vertices.length / 2;
+  const nCapTris = capResult.indices.length / 3;
   const nBoundary = subdividedPts.length;
-
-  // Count unique cap vertices using object-identity (no string allocations)
-  const uniqueCapPoints = new Set<poly2tri.Point>();
-  for (const tri of capTriangles) {
-    const pts = tri.getPoints();
-    uniqueCapPoints.add(pts[0]);
-    uniqueCapPoints.add(pts[1]);
-    uniqueCapPoints.add(pts[2]);
-  }
-  const nUniqueCapVerts = uniqueCapPoints.size;
-  uniqueCapPoints.clear(); // release for GC
 
   const nSideVerts = nBoundary * depthSegs * 4;
   const totalVerts = nUniqueCapVerts * 2 + nSideVerts;
@@ -68,7 +57,7 @@ export function buildGeometry(
     indices,
     0,
     0,
-    capTriangles,
+    capResult,
     frontZ,
     -1,
     true,
@@ -81,7 +70,7 @@ export function buildGeometry(
     indices,
     frontVertsWritten,
     nCapTris * 3,
-    capTriangles,
+    capResult,
     backZ,
     1,
     false,
