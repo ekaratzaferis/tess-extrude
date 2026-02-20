@@ -14,6 +14,7 @@ export default defineConfig({
   // Must match the GitHub repository name for Pages to serve assets correctly
   base: '/tess-extrude/',
   build: {
+    target: 'es2022',
     outDir: path.resolve(__dirname, 'dist-demo'),
     emptyOutDir: true,
   },
@@ -21,8 +22,5 @@ export default defineConfig({
     alias: {
       'tess-extrude': path.resolve(__dirname, 'src/index.ts'),
     },
-  },
-  define: {
-    global: 'globalThis',
   },
 });

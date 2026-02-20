@@ -2,6 +2,8 @@
 
 Extrude 2D polygon outlines into `THREE.BufferGeometry` using triangle-wasm Delaunay tessellation.
 
+**[Live Demo →](https://ekaratzaferis.github.io/tess-extrude/)**
+
 ## Install
 
 ```bash
