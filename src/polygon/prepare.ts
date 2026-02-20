@@ -32,7 +32,7 @@ export function deduplicatePoints(points: Point2D[], eps = 0.5): Point2D[] {
 
 /**
  * Ensure the polygon winding is counter-clockwise (positive signed area via
- * the shoelace formula). poly2tri requires CCW contours.
+ * the shoelace formula). triangulation requires CCW contours.
  */
 export function ensureCCW(points: Point2D[]): Point2D[] {
   let area = 0;

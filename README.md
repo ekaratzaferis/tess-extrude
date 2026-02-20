@@ -1,6 +1,6 @@
 # tess-extrude
 
-Extrude 2D polygon outlines into `THREE.BufferGeometry` using poly2tri Delaunay tessellation.
+Extrude 2D polygon outlines into `THREE.BufferGeometry` using triangle-wasm Delaunay tessellation.
 
 ## Install
 

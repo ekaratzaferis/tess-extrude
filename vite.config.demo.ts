@@ -22,7 +22,6 @@ export default defineConfig({
       'tess-extrude': path.resolve(__dirname, 'src/index.ts'),
     },
   },
-  // poly2tri is CJS and references Node's `global`; shim it for browsers
   define: {
     global: 'globalThis',
   },
